@@ -10,7 +10,7 @@ using System.Xml.Serialization;
 using Ionic.Zip;
 using System.Text.RegularExpressions;
 
-//using Parallel = Grader.Sequential<string>;
+using Parallel = Grader.Sequential<string>;
 
 namespace Grader
 {
@@ -59,7 +59,7 @@ namespace Grader
 
 	class Program
 	{
-		const int WaitForExecutable = 2000;
+		const int WaitForExecutable = 5000;
 		const int WaitForCompiler = 5000;
 
 		static void Main(string[] args)
@@ -129,6 +129,10 @@ namespace Grader
 							results.Add(new Results(tests[fileName].Length, homeworkIndex, fileName, facultyNumber));
 							if (result)
 								RunTests(directory, fileName, tests[fileName], results.Last());
+							else
+							{
+								Console.WriteLine("Could not compile {0}", directory + file);
+							}
 						}
 						catch (Exception e)
 						{
@@ -182,6 +186,8 @@ namespace Grader
 				});
 		}
 
+		static string[] delimiter = { Environment.NewLine };
+
 		private static void CleanUpFolder(string defaultDirectory)
 		{
 			DirectoryInfo homeworkFolder = new DirectoryInfo(defaultDirectory);
@@ -200,11 +206,11 @@ namespace Grader
 		{
 			for (int i = 0; i < tests.Length; i++)
 			{
-				results.TestResults[i] = RunTest(directory, fileName, tests[i], results);
+				results.TestResults[i] = RunTest(directory, fileName, tests[i]);
 			}
 		}
 
-		private static bool RunTest(string directory, string fileName, Test test, Results results)
+		private static bool RunTest(string directory, string fileName, Test test)
 		{
 			ProcessStartInfo info = new ProcessStartInfo();
 			info.FileName = Path.Combine(directory, fileName) + ".exe";
@@ -223,18 +229,31 @@ namespace Grader
 
 			int next = process.StandardOutput.Peek();
 			if (next == -1)
-				Console.WriteLine(next);
+			{
+				// In case the process was killed
+				//	Console.WriteLine(next);
+			}
 
-			string result = process.StandardOutput.ReadToEnd().Trim().ToUpperInvariant();
-			string output = test.Output.Trim().ToUpperInvariant();
-			result = Regex.Replace(result, @"\r\n|\n\r|\n|\r", "\r\n");
-			result = result.Replace(@"\t", "    ");
-			output = Regex.Replace(output, @"\r\n|\n\r|\n|\r", "\r\n");
-			output = output.Replace(@"\t", "    ");
+			string result = NormalizeString(process.StandardOutput.ReadToEnd());
+			string output = NormalizeString(test.Output);
 
 			bool isCorrect = result == output;
 
+			if (!isCorrect)
+			{
+				Console.WriteLine("Test failed: {0}\nExpect: {1}\nResult: {2}", Path.Combine(directory, fileName), output.Replace("\r\n", @"\r\n"), result.Replace("\r\n", @"\r\n"));
+			}
+
 			return isCorrect;
+		}
+
+		private static string NormalizeString(string result)
+		{
+			result = result.Trim().ToUpperInvariant();
+			result = Regex.Replace(result, @"\r\n|\n\r|\n|\r", Environment.NewLine);
+			result = result.Replace(@"\t", "    ");
+			result = String.Join(Environment.NewLine, result.Split(delimiter, StringSplitOptions.RemoveEmptyEntries).Select(x => x.Trim()));
+			return result;
 		}
 
 		private static async Task<bool> TryCompileFile(string userDirectory, string cmdPath, string fileName)
@@ -261,7 +280,6 @@ namespace Grader
 				readError = await compiler.StandardError.ReadToEndAsync();
 
 			string output = readOutput + readError;
-			Console.WriteLine(output);
 			if (output.ToUpperInvariant().Contains("ERROR"))
 				return false;
 			return true;
